@@ -1,0 +1,249 @@
+---
+title: "Using K-Means Clustering to Identify Player Similarity"
+author: "Allen Chun"
+date: '2023-10-23'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Processing the Data
+
+### Loading the Data
+
+```{r, message=FALSE}
+library(tidyverse)
+library(factoextra)
+library(ggthemes)
+```
+
+```{r}
+standard <- read.csv("nba-22-23.csv")
+advanced <- read.csv("nba-22-23-advanced.csv")
+rookies <- read.csv("rookies-22-23.csv")
+```
+
+### Cleaning the Data
+
+```{r}
+# finding which rows to remove
+y <- c()
+for (i in 1:(nrow(standard) - 1)) {
+  if (standard[i, 1] == standard[i + 1, 1]) {
+    y <- c(y, i + 1)
+  }
+  if (is.na(standard[i, 1] == standard[i + 1, 1])) {
+    break
+  }
+  else {
+    next
+  }
+}
+```
+
+```{r}
+# removing irrelevant rows & columns
+standard <- standard[-y, -31]
+```
+
+```{r}
+# finding which rows to remove
+y <- c()
+for (i in 1:(nrow(advanced) - 1)) {
+  if (advanced[i, 1] == advanced[i + 1, 1]) {
+    y <- c(y, i + 1)
+  }
+  if (is.na(advanced[i, 1] == advanced[i + 1, 1])) {
+    break
+  }
+  else {
+    next
+  }
+}
+```
+
+```{r}
+# removing irrelevant rows & columns
+advanced <- advanced[-y, -c(20, 25, 30)]
+```
+
+```{r}
+# combining datasets
+nba <- cbind(standard, advanced)
+```
+
+```{r}
+# removing duplicate columns
+nba <- nba[, -c(31:37)]
+# handling NA values & filtering for more precise analysis
+nba[is.na(nba)] <- 0
+nba <- nba[which(nba$G >= 41 & nba$MP >= 24), ]
+```
+
+```{r}
+# removing data to only include relevant stats on the court
+row.names(nba) <- nba$Player 
+nba <- nba[, -c(1:5)]
+nba_all <- nba[, -c(1:3)]
+```
+
+### Normalizing Data
+
+```{r}
+# applying z-score normalization
+nba_all <- data.frame(scale(nba_all))
+```
+
+## Standard Analysis
+
+```{r}
+res_dist <- get_dist(nba_all, stand = TRUE, method = "euclidean")
+```
+
+```{r}
+fviz_dist(res_dist,
+          gradient = list(low = "#00AFBB", mid = "white", high = "#FC4E07"), 
+          lab_size = 2)
+```
+
+```{r}
+# determining optimal clusters through different methods
+fviz_nbclust(nba_all, kmeans, method = "wss") # within cluster sums of squares
+fviz_nbclust(nba_all, kmeans, method = "silhouette") # silhouette
+fviz_nbclust(nba_all, kmeans, method = "gap_stat") # gap statistics
+```
+
+```{r}
+# kmeans
+set.seed(7)
+km.res <- kmeans(nba_all, 8, nstart = 25)
+```
+
+```{r}
+png("nba-clusters.png", width = 1080, height = 720)
+
+fviz_cluster(km.res, nba_all, ellipse = TRUE, ellipse.alpha = 0.1,
+             palette = "gdocs", repel = TRUE, ggtheme = theme_minimal(), 
+             main = FALSE, xlab = FALSE, ylab = FALSE,
+             labelsize = 10, lwd = 2.5
+             )
+```
+
+## Rookie of the Year
+
+```{r}
+roy <- cbind(standard, advanced)
+roy <- roy[, -c(31:37)]
+roy <- rookies %>% left_join(roy, by = "Player")
+```
+
+```{r}
+roy[is.na(roy)] <- 0
+roy <- roy[which(roy$G.x >= 24 & roy$MP.x >= 24), ]
+```
+
+```{r}
+# removing winning stats
+row.names(roy) <- roy$Player 
+roy <- roy[, -c(1:36, 71:78)]
+```
+
+```{r}
+roy <- data.frame(scale(roy))
+```
+
+```{r}
+# determining optimal clusters
+fviz_nbclust(roy, kmeans, method = "wss")
+fviz_nbclust(roy, kmeans, method = "silhouette")
+fviz_nbclust(roy, kmeans, method = "gap_stat")
+```
+
+```{r}
+# kmeans
+set.seed(7)
+km.res2 <- kmeans(roy, 6, nstart = 25)
+```
+
+```{r}
+png("nba-clusters-roy.png", width = 1080, height = 720)
+
+fviz_cluster(km.res2, roy, ellipse = TRUE, ellipse.alpha = 0.1,
+             palette = "gdocs", repel = TRUE, ggtheme = theme_minimal(), 
+             main = FALSE, xlab = FALSE, ylab = FALSE,
+             labelsize = 10, lwd = 2.5
+             )
+```
+
+## Defensive Player of the Year
+
+```{r}
+dpoy <- nba[which(nba$G >= 65 & nba$MP >= 20), ]
+dpoy$Player <- rownames(dpoy)
+dpoy <- data.frame(dpoy %>% rowwise() %>% mutate(sum_of_stlblk = sum(c(STL, BLK))))
+rownames(dpoy) <- dpoy$Player
+dpoy <- dpoy[, c(21:22, 24, 34:35, 39, 43, 47)]
+dpoy <- dpoy %>% filter(sum_of_stlblk >= 2)
+dpoy <- data.frame(scale(dpoy))
+```
+
+```{r}
+# determining optimal clusters
+fviz_nbclust(dpoy, kmeans, method = "wss")
+fviz_nbclust(dpoy, kmeans, method = "silhouette")
+fviz_nbclust(dpoy, kmeans, method = "gap_stat")
+```
+
+```{r}
+# kmeans
+set.seed(7)
+km.res3 <- kmeans(dpoy, 4, nstart = 25)
+```
+
+```{r}
+png("nba-clusters-dpoy.png", width = 1080, height = 720)
+
+fviz_cluster(km.res3, dpoy, ellipse = TRUE, ellipse.alpha = 0.1,
+             palette = "gdocs", repel = TRUE, ggtheme = theme_minimal(), 
+             main = FALSE, xlab = FALSE, ylab = FALSE,
+             labelsize = 10, lwd = 2.5
+             )
+```
+
+## Most Valuable Player
+
+```{r}
+mvp <- nba[which(nba$G >= 65 & nba$MP >= 20), ]
+mvp <- mvp %>% filter(PTS >= 20 & WS >= 5)
+mvp <- mvp[, c(19:22, 25:27, 32:45)]
+mvp <- data.frame(scale(mvp))
+```
+
+```{r}
+# determining optimal clusters
+fviz_nbclust(mvp, kmeans, method = "wss")
+fviz_nbclust(mvp, kmeans, method = "silhouette")
+fviz_nbclust(mvp, kmeans, method = "gap_stat")
+```
+
+```{r}
+# kmeans
+set.seed(7)
+km.res4 <- kmeans(mvp, 6, nstart = 25)
+```
+
+```{r}
+png("nba-clusters-mvp.png", width = 1080, height = 720)
+
+fviz_cluster(km.res4, mvp, ellipse = TRUE, ellipse.alpha = 0.1,
+             palette = "gdocs", repel = TRUE, ggtheme = theme_minimal(), 
+             main = FALSE, xlab = FALSE, ylab = FALSE,
+             labelsize = 10, lwd = 2.5
+             )
+```
+
+
+
+
